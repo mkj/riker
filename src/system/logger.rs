@@ -36,16 +36,16 @@ impl<'a> From<&'a Config> for LoggerConfig {
     }
 }
 
-pub(crate) fn default_log(cfg: &Config) -> Logger {
+pub(crate) fn default_log(cfg: &Config) -> (Logger, slog_scope::GlobalLoggerGuard) {
     let cfg = LoggerConfig::from(cfg);
 
     let drain = DefaultConsoleLogger::new(cfg.clone()).filter_level(cfg.level).fuse();
     let logger = Logger::root(drain, o!());
 
-    let _scope_guard = slog_scope::set_global_logger(logger.clone());
+    let scope_guard = slog_scope::set_global_logger(logger.clone());
     let _log_guard = slog_stdlog::init();   // will not call `.unwrap()` because this might be called more than once
 
-    logger
+    (logger, scope_guard)
 }
 
 struct DefaultConsoleLogger {

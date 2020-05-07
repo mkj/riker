@@ -58,9 +58,14 @@ impl SystemBuilder {
         let name = self.name.unwrap_or_else(|| "riker".to_string());
         let cfg = self.cfg.unwrap_or_else(load_config);
         let exec = self.exec.unwrap_or_else(|| default_exec(&cfg));
-        let log = self.log.unwrap_or_else(|| default_log(&cfg));
+        let (log, guard) = if let Some(l) = self.log {
+            (l, None)
+        } else {
+            let (l, g) = default_log(&cfg);
+            (l, Some(g))
+        };
 
-        ActorSystem::create(name.as_ref(), exec, log, cfg)
+        ActorSystem::create(name.as_ref(), exec, log, guard, cfg)
     }
 
     pub fn name(self, name: &str) -> Self {
@@ -105,6 +110,7 @@ pub struct ActorSystem {
     proto: Arc<ProtoSystem>,
     sys_actors: Option<SysActors>,
     log: Logger,
+    log_guard: Option<Arc<slog_scope::GlobalLoggerGuard>>,
     debug: bool,
     pub exec: ThreadPool,
     pub timer: TimerRef,
@@ -119,9 +125,9 @@ impl ActorSystem {
     pub fn new() -> Result<ActorSystem, SystemError> {
         let cfg = load_config();
         let exec = default_exec(&cfg);
-        let log = default_log(&cfg);
+        let (log, guard) = default_log(&cfg);
 
-        ActorSystem::create("riker", exec, log, cfg)
+        ActorSystem::create("riker", exec, log, Some(guard), cfg)
     }
 
     /// Create a new `ActorSystem` instance with provided name
@@ -130,23 +136,24 @@ impl ActorSystem {
     pub fn with_name(name: &str) -> Result<ActorSystem, SystemError> {
         let cfg = load_config();
         let exec = default_exec(&cfg);
-        let log = default_log(&cfg);
+        let (log, guard) = default_log(&cfg);
 
-        ActorSystem::create(name, exec, log, cfg)
+        ActorSystem::create(name, exec, log, Some(guard), cfg)
     }
 
     /// Create a new `ActorSystem` instance bypassing default config behavior
     pub fn with_config(name: &str, cfg: Config) -> Result<ActorSystem, SystemError> {
         let exec = default_exec(&cfg);
-        let log = default_log(&cfg);
+        let (log, guard) = default_log(&cfg);
 
-        ActorSystem::create(name, exec, log, cfg)
+        ActorSystem::create(name, exec, log, Some(guard), cfg)
     }
 
     fn create(
         name: &str,
         exec: ThreadPool,
         log: Logger,
+        log_guard: Option<slog_scope::GlobalLoggerGuard>,
         cfg: Config,
     ) -> Result<ActorSystem, SystemError> {
         validate_name(name).map_err(|_| SystemError::InvalidName(name.into()))?;
@@ -177,6 +184,7 @@ impl ActorSystem {
             debug,
             exec,
             log,
+            log_guard: log_guard.map(|g| Arc::new(g)),
             // event_store: None,
             timer,
             sys_channels: None,
